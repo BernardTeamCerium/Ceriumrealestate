@@ -33,6 +33,7 @@ python3 -m http.server 8000
 | **Expenses** | Every recorded cost with category, property, amount, how much is still **owed** per expense, and a payment-progress bar. Add / edit / delete. |
 | **Projections** | Forecasted monthly income vs expenses, cumulative net-position chart, and a month-by-month breakdown table. |
 | **Money Owed** | Two ledgers — **payables** (what we owe vendors, derived from unpaid expenses) and **receivables** (rent/fees owed to us). One-click "Mark paid". |
+| **Owner Funds** | Capital and financing contributed by owners/investors, split into equity, reserves, and repayable loans, with a per-owner contribution breakdown. |
 | **Upcoming Fixes** | Maintenance and repairs that need attention, with priority, due date, estimated cost, and status. Overdue items are flagged. |
 
 ## Data & persistence

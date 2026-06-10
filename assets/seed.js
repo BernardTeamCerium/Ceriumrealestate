@@ -48,6 +48,17 @@ const SEED_DATA = {
     { id: 'r6', tenant: 'J. Alvarez', property: 'p2', description: 'Duplex unit 2 - June', dueDate: '2026-05-28', amount: 1700, status: 'overdue' },
   ],
 
+  // Capital contributed by owners / investors into the business or a property.
+  // `type`: equity | loan | reserve. Equity & reserve are owner capital;
+  // loans are owner financing that's expected to be repaid.
+  investments: [
+    { id: 'i1', date: '2026-01-15', owner: 'B. Cerium', property: 'p1', type: 'equity', amount: 120000, notes: 'Initial acquisition equity' },
+    { id: 'i2', date: '2026-02-03', owner: 'R. Frazier', property: 'p3', type: 'equity', amount: 200000, notes: 'Commercial tower stake' },
+    { id: 'i3', date: '2026-03-12', owner: 'B. Cerium', property: 'p4', type: 'loan', amount: 45000, notes: 'Bridge loan for renovations' },
+    { id: 'i4', date: '2026-04-01', owner: 'Cerium Holdings', property: '', type: 'reserve', amount: 30000, notes: 'Operating reserve top-up' },
+    { id: 'i5', date: '2026-05-09', owner: 'R. Frazier', property: 'p2', type: 'equity', amount: 60000, notes: 'Duplex buy-in' },
+  ],
+
   // Forward-looking monthly projections for the fiscal year.
   // Amounts are projected income vs projected expenses.
   projections: [

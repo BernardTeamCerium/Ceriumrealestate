@@ -44,9 +44,14 @@ function metrics() {
   const upcomingFixCost = state.tasks.filter((t) => t.status !== 'done').reduce((s, t) => s + (t.estCost || 0), 0);
   const projIncome = state.projections.reduce((s, p) => s + p.income, 0);
   const projExpenses = state.projections.reduce((s, p) => s + p.expenses, 0);
+  const inv = state.investments || [];
+  const ownerEquity = inv.filter((i) => i.type !== 'loan').reduce((s, i) => s + i.amount, 0);
+  const ownerLoans = inv.filter((i) => i.type === 'loan').reduce((s, i) => s + i.amount, 0);
+  const totalInvested = ownerEquity + ownerLoans;
   return {
     totalExpenses, owedToVendors, receivablesOpen, receivablesOverdue,
     upcomingFixCost, projIncome, projExpenses, projNet: projIncome - projExpenses,
+    ownerEquity, ownerLoans, totalInvested,
   };
 }
 
@@ -60,6 +65,7 @@ const badgeFor = (status) => {
   return `<span class="badge ${cls}">${label}</span>`;
 };
 const priorityBadge = (p) => `<span class="badge ${p === 'high' ? 'red' : p === 'medium' ? 'amber' : 'green'}">${p}</span>`;
+const investBadge = (t) => `<span class="badge ${t === 'equity' ? 'green' : t === 'loan' ? 'amber' : 'blue'}">${t}</span>`;
 
 /* ----------------------------- Views ----------------------------- */
 
@@ -275,6 +281,66 @@ function renderOwed() {
     </div>`;
 }
 
+function renderInvestments() {
+  const m = metrics();
+  const inv = [...(state.investments || [])].sort((a, b) => b.date.localeCompare(a.date));
+  const byOwner = {};
+  inv.forEach((i) => { byOwner[i.owner] = (byOwner[i.owner] || 0) + i.amount; });
+  const topOwners = Object.entries(byOwner).sort((a, b) => b[1] - a[1]);
+
+  const rows = inv.map((i) => `<tr>
+    <td>${fmtDate(i.date)}</td>
+    <td>${esc(i.owner)}</td>
+    <td>${i.property ? esc(propName(i.property)) : '<span style="color:var(--text-dim)">General fund</span>'}</td>
+    <td>${investBadge(i.type)}</td>
+    <td>${esc(i.notes || '')}</td>
+    <td class="num">${fmt(i.amount)}</td>
+    <td><div class="row-actions">
+      <button class="icon-btn" onclick="openInvestment('${i.id}')" title="Edit">✏️</button>
+      <button class="icon-btn del" onclick="del('investments','${i.id}')" title="Delete">🗑️</button>
+    </div></td>
+  </tr>`).join('');
+
+  const ownerRows = topOwners.map(([owner, amt]) => {
+    const pct = m.totalInvested ? (amt / m.totalInvested) * 100 : 0;
+    return `<tr>
+      <td>${esc(owner)}</td>
+      <td class="num">${fmt(amt)}</td>
+      <td style="width:40%"><div class="bar-mini"><div style="width:${pct}%;background:var(--accent)"></div></div></td>
+      <td class="num">${pct.toFixed(0)}%</td>
+    </tr>`;
+  }).join('');
+
+  return `
+    <div class="page-head">
+      <div><h2>Owner Funds</h2><p>Capital and financing contributed by owners and investors</p></div>
+      <button class="btn" onclick="openInvestment()">＋ Add Contribution</button>
+    </div>
+    <div class="kpi-grid">
+      <div class="kpi"><div class="label"><span class="dot" style="background:var(--accent)"></span>Total Invested</div><div class="value">${fmt(m.totalInvested)}</div><div class="sub">${inv.length} contributions</div></div>
+      <div class="kpi"><div class="label"><span class="dot" style="background:var(--green)"></span>Owner Equity</div><div class="value">${fmt(m.ownerEquity)}</div><div class="sub">equity + reserves</div></div>
+      <div class="kpi"><div class="label"><span class="dot" style="background:var(--amber)"></span>Owner Loans</div><div class="value">${fmt(m.ownerLoans)}</div><div class="sub">repayable financing</div></div>
+      <div class="kpi"><div class="label"><span class="dot" style="background:var(--accent)"></span>Investors</div><div class="value">${topOwners.length}</div><div class="sub">distinct contributors</div></div>
+    </div>
+
+    <div class="grid-2-1">
+      <div class="panel">
+        <h3>Contributions <span class="hint">${inv.length} entries</span></h3>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Date</th><th>Owner</th><th>Property</th><th>Type</th><th>Notes</th><th class="num">Amount</th><th></th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="7"><div class="empty">No contributions yet.</div></td></tr>'}</tbody>
+        </table></div>
+      </div>
+      <div class="panel">
+        <h3>By Owner</h3>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Owner</th><th class="num">Total</th><th>Share</th><th class="num"></th></tr></thead>
+          <tbody>${ownerRows || '<tr><td colspan="4"><div class="empty">—</div></td></tr>'}</tbody>
+        </table></div>
+      </div>
+    </div>`;
+}
+
 function renderFixes() {
   const sorted = [...state.tasks].sort((a, b) => {
     const order = { high: 0, medium: 1, low: 2 };
@@ -391,7 +457,7 @@ function buildCharts() {
 
 /* ----------------------------- Router ----------------------------- */
 
-const VIEWS = { overview: renderOverview, expenses: renderExpenses, projections: renderProjections, owed: renderOwed, fixes: renderFixes };
+const VIEWS = { overview: renderOverview, expenses: renderExpenses, projections: renderProjections, owed: renderOwed, investments: renderInvestments, fixes: renderFixes };
 
 function render() {
   document.getElementById('view').innerHTML = (VIEWS[currentView] || renderOverview)();
@@ -489,6 +555,26 @@ function openTask(id) {
   });
 }
 
+function openInvestment(id) {
+  state.investments = state.investments || [];
+  const i = state.investments.find((x) => x.id === id) || { date: '2026-06-10', type: 'equity', amount: '', property: '' };
+  modal(id ? 'Edit Contribution' : 'Add Owner Contribution', `
+    <div class="field"><label>Owner / Investor</label><input id="f_owner" value="${esc(i.owner || '')}" placeholder="e.g. B. Cerium"></div>
+    <div class="field-row">
+      <div class="field"><label>Date</label><input id="f_date" type="date" value="${i.date}"></div>
+      <div class="field"><label>Type</label><select id="f_type">${['equity', 'loan', 'reserve'].map((t) => `<option ${t === i.type ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+    </div>
+    <div class="field"><label>Property (optional)</label><select id="f_prop"><option value="">General fund</option>${propOptions(i.property)}</select></div>
+    <div class="field"><label>Amount</label><input id="f_amt" type="number" min="0" value="${i.amount || ''}"></div>
+    <div class="field"><label>Notes</label><textarea id="f_notes" rows="2">${esc(i.notes || '')}</textarea></div>
+  `, () => {
+    if (!val('f_owner') || !+val('f_amt')) { alert('Owner and amount are required.'); return false; }
+    const rec = { owner: val('f_owner'), date: val('f_date'), type: val('f_type'), property: val('f_prop'), amount: +val('f_amt'), notes: val('f_notes') };
+    if (id) Object.assign(i, rec); else state.investments.push({ id: uid(), ...rec });
+    saveState(); render();
+  });
+}
+
 function settleExpense(id) {
   const e = state.expenses.find((x) => x.id === id);
   if (e) { e.paid = e.amount; e.status = 'paid'; saveState(); render(); }
@@ -518,4 +604,4 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Expose handlers used in inline onclick attributes.
-Object.assign(window, { openExpense, openReceivable, openTask, settleExpense, settleReceivable, del });
+Object.assign(window, { openExpense, openReceivable, openTask, openInvestment, settleExpense, settleReceivable, del });
