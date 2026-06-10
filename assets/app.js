@@ -48,10 +48,12 @@ function metrics() {
   const ownerEquity = inv.filter((i) => i.type !== 'loan').reduce((s, i) => s + i.amount, 0);
   const ownerLoans = inv.filter((i) => i.type === 'loan').reduce((s, i) => s + i.amount, 0);
   const totalInvested = ownerEquity + ownerLoans;
+  const totalRepaidOwners = inv.reduce((s, i) => s + (i.repaid || 0), 0);
+  const owedToOwners = inv.reduce((s, i) => s + Math.max(0, i.amount - (i.repaid || 0)), 0);
   return {
     totalExpenses, owedToVendors, receivablesOpen, receivablesOverdue,
     upcomingFixCost, projIncome, projExpenses, projNet: projIncome - projExpenses,
-    ownerEquity, ownerLoans, totalInvested,
+    ownerEquity, ownerLoans, totalInvested, totalRepaidOwners, owedToOwners,
   };
 }
 
@@ -284,60 +286,74 @@ function renderOwed() {
 function renderInvestments() {
   const m = metrics();
   const inv = [...(state.investments || [])].sort((a, b) => b.date.localeCompare(a.date));
-  const byOwner = {};
-  inv.forEach((i) => { byOwner[i.owner] = (byOwner[i.owner] || 0) + i.amount; });
-  const topOwners = Object.entries(byOwner).sort((a, b) => b[1] - a[1]);
 
-  const rows = inv.map((i) => `<tr>
-    <td>${fmtDate(i.date)}</td>
-    <td>${esc(i.owner)}</td>
-    <td>${i.property ? esc(propName(i.property)) : '<span style="color:var(--text-dim)">General fund</span>'}</td>
-    <td>${investBadge(i.type)}</td>
-    <td>${esc(i.notes || '')}</td>
-    <td class="num">${fmt(i.amount)}</td>
-    <td><div class="row-actions">
-      <button class="icon-btn" onclick="openInvestment('${i.id}')" title="Edit">✏️</button>
-      <button class="icon-btn del" onclick="del('investments','${i.id}')" title="Delete">🗑️</button>
-    </div></td>
-  </tr>`).join('');
+  // Roll contributions up per owner so we can see the running balance owed back.
+  const owners = {};
+  inv.forEach((i) => {
+    const o = owners[i.owner] || (owners[i.owner] = { contributed: 0, repaid: 0 });
+    o.contributed += i.amount;
+    o.repaid += i.repaid || 0;
+  });
+  const ownerList = Object.entries(owners).map(([owner, o]) => ({ owner, ...o, owed: o.contributed - o.repaid }))
+    .sort((a, b) => b.owed - a.owed);
 
-  const ownerRows = topOwners.map(([owner, amt]) => {
-    const pct = m.totalInvested ? (amt / m.totalInvested) * 100 : 0;
+  const rows = inv.map((i) => {
+    const repaid = i.repaid || 0;
+    const owed = i.amount - repaid;
+    const pct = i.amount ? (repaid / i.amount) * 100 : 100;
     return `<tr>
-      <td>${esc(owner)}</td>
-      <td class="num">${fmt(amt)}</td>
-      <td style="width:40%"><div class="bar-mini"><div style="width:${pct}%;background:var(--accent)"></div></div></td>
-      <td class="num">${pct.toFixed(0)}%</td>
+      <td>${fmtDate(i.date)}</td>
+      <td>${esc(i.owner)}</td>
+      <td>${i.property ? esc(propName(i.property)) : '<span style="color:var(--text-dim)">General fund</span>'}</td>
+      <td>${investBadge(i.type)}</td>
+      <td class="num">${fmt(i.amount)}</td>
+      <td class="num">${fmt(repaid)}<div class="bar-mini" style="margin-top:5px"><div style="width:${pct}%;background:${pct >= 100 ? 'var(--green)' : 'var(--accent)'}"></div></div></td>
+      <td class="num">${owed > 0 ? `<span style="color:var(--amber)">${fmt(owed)}</span>` : '<span style="color:var(--green)">Settled</span>'}</td>
+      <td><div class="row-actions">
+        ${owed > 0 ? `<button class="btn ghost sm" onclick="repayOwner('${i.id}')">Record payment</button>` : ''}
+        <button class="icon-btn" onclick="openInvestment('${i.id}')" title="Edit">✏️</button>
+        <button class="icon-btn del" onclick="del('investments','${i.id}')" title="Delete">🗑️</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+
+  const ownerRows = ownerList.map((o) => {
+    const pct = o.contributed ? (o.repaid / o.contributed) * 100 : 0;
+    return `<tr>
+      <td>${esc(o.owner)}</td>
+      <td class="num">${fmt(o.contributed)}</td>
+      <td class="num">${fmt(o.repaid)}</td>
+      <td class="num" style="color:${o.owed > 0 ? 'var(--amber)' : 'var(--green)'};font-weight:600">${fmt(o.owed)}</td>
+      <td style="width:22%"><div class="bar-mini"><div style="width:${pct}%;background:var(--green)"></div></div></td>
     </tr>`;
   }).join('');
 
   return `
     <div class="page-head">
-      <div><h2>Owner Funds</h2><p>Capital and financing contributed by owners and investors</p></div>
+      <div><h2>Owner Funds</h2><p>Owner/investor contributions and the running balance owed back to each owner</p></div>
       <button class="btn" onclick="openInvestment()">＋ Add Contribution</button>
     </div>
     <div class="kpi-grid">
-      <div class="kpi"><div class="label"><span class="dot" style="background:var(--accent)"></span>Total Invested</div><div class="value">${fmt(m.totalInvested)}</div><div class="sub">${inv.length} contributions</div></div>
-      <div class="kpi"><div class="label"><span class="dot" style="background:var(--green)"></span>Owner Equity</div><div class="value">${fmt(m.ownerEquity)}</div><div class="sub">equity + reserves</div></div>
-      <div class="kpi"><div class="label"><span class="dot" style="background:var(--amber)"></span>Owner Loans</div><div class="value">${fmt(m.ownerLoans)}</div><div class="sub">repayable financing</div></div>
-      <div class="kpi"><div class="label"><span class="dot" style="background:var(--accent)"></span>Investors</div><div class="value">${topOwners.length}</div><div class="sub">distinct contributors</div></div>
+      <div class="kpi"><div class="label"><span class="dot" style="background:var(--accent)"></span>Total Contributed</div><div class="value">${fmt(m.totalInvested)}</div><div class="sub">${inv.length} contributions</div></div>
+      <div class="kpi"><div class="label"><span class="dot" style="background:var(--amber)"></span>Owed Back to Owners</div><div class="value" style="color:var(--amber)">${fmt(m.owedToOwners)}</div><div class="sub">outstanding balance</div></div>
+      <div class="kpi"><div class="label"><span class="dot" style="background:var(--green)"></span>Repaid to Owners</div><div class="value">${fmt(m.totalRepaidOwners)}</div><div class="sub">distributions & repayments</div></div>
+      <div class="kpi"><div class="label"><span class="dot" style="background:var(--accent)"></span>Owners</div><div class="value">${ownerList.length}</div><div class="sub">distinct contributors</div></div>
     </div>
 
-    <div class="grid-2-1">
-      <div class="panel">
-        <h3>Contributions <span class="hint">${inv.length} entries</span></h3>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Date</th><th>Owner</th><th>Property</th><th>Type</th><th>Notes</th><th class="num">Amount</th><th></th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="7"><div class="empty">No contributions yet.</div></td></tr>'}</tbody>
-        </table></div>
-      </div>
-      <div class="panel">
-        <h3>By Owner</h3>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Owner</th><th class="num">Total</th><th>Share</th><th class="num"></th></tr></thead>
-          <tbody>${ownerRows || '<tr><td colspan="4"><div class="empty">—</div></td></tr>'}</tbody>
-        </table></div>
-      </div>
+    <div class="panel">
+      <h3>Owed Back by Owner <span class="hint">contributed − repaid</span></h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Owner</th><th class="num">Contributed</th><th class="num">Repaid</th><th class="num">Owed Back</th><th>Repaid %</th></tr></thead>
+        <tbody>${ownerRows || '<tr><td colspan="5"><div class="empty">No contributions yet.</div></td></tr>'}</tbody>
+      </table></div>
+    </div>
+
+    <div class="panel">
+      <h3>Contributions Ledger <span class="hint">${inv.length} entries</span></h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Date</th><th>Owner</th><th>Property</th><th>Type</th><th class="num">Amount</th><th class="num">Repaid</th><th class="num">Owed Back</th><th></th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="8"><div class="empty">No contributions yet.</div></td></tr>'}</tbody>
+      </table></div>
     </div>`;
 }
 
@@ -570,7 +586,28 @@ function openInvestment(id) {
   `, () => {
     if (!val('f_owner') || !+val('f_amt')) { alert('Owner and amount are required.'); return false; }
     const rec = { owner: val('f_owner'), date: val('f_date'), type: val('f_type'), property: val('f_prop'), amount: +val('f_amt'), notes: val('f_notes') };
-    if (id) Object.assign(i, rec); else state.investments.push({ id: uid(), ...rec });
+    if (id) Object.assign(i, rec); else state.investments.push({ id: uid(), repaid: 0, ...rec });
+    saveState(); render();
+  });
+}
+
+// Record a repayment / distribution against a single contribution, reducing
+// the balance owed back to that owner. Partial payments are allowed.
+function repayOwner(id) {
+  const i = (state.investments || []).find((x) => x.id === id);
+  if (!i) return;
+  const outstanding = i.amount - (i.repaid || 0);
+  modal('Record Payment to Owner', `
+    <div class="field"><label>Owner</label><input value="${esc(i.owner)}" disabled></div>
+    <div class="field-row">
+      <div class="field"><label>Outstanding</label><input value="${fmt(outstanding)}" disabled></div>
+      <div class="field"><label>Payment amount</label><input id="f_pay" type="number" min="0" max="${outstanding}" value="${outstanding}"></div>
+    </div>
+    <div class="field" style="color:var(--text-dim);font-size:12px">Reduces the balance owed back to this owner. Enter a smaller amount for a partial repayment.</div>
+  `, () => {
+    const pay = +val('f_pay');
+    if (!(pay > 0)) { alert('Enter a payment amount greater than zero.'); return false; }
+    i.repaid = Math.min(i.amount, (i.repaid || 0) + pay);
     saveState(); render();
   });
 }
@@ -604,4 +641,4 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Expose handlers used in inline onclick attributes.
-Object.assign(window, { openExpense, openReceivable, openTask, openInvestment, settleExpense, settleReceivable, del });
+Object.assign(window, { openExpense, openReceivable, openTask, openInvestment, repayOwner, settleExpense, settleReceivable, del });
