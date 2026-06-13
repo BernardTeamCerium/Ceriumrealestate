@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cerium Real Estate — Accounting Dashboard</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo">C</div>
+        <div>
+          <h1>Cerium Real Estate</h1>
+          <span>Accounting Dashboard</span>
+        </div>
+      </div>
+      <nav class="nav">
+        <button data-view="overview"><span class="ic">📊</span> Overview</button>
+        <button data-view="expenses"><span class="ic">🧾</span> Expenses</button>
+        <button data-view="projections"><span class="ic">📈</span> Projections</button>
+        <button data-view="owed"><span class="ic">💰</span> Money Owed</button>
+        <button data-view="investments"><span class="ic">🏦</span> Owner Funds</button>
+        <button data-view="insurance"><span class="ic">🛡️</span> Insurance</button>
+        <button data-view="mortgages"><span class="ic">🏠</span> Mortgages</button>
+        <button data-view="fixes"><span class="ic">🔧</span> Upcoming Fixes</button>
+      </nav>
+      <div class="sidebar-footer">
+        <div>Data is saved in your browser.</div>
+        <button id="resetBtn">↺ Reset to sample data</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div id="view"></div>
+    </main>
+  </div>
+
+  <!-- Shared modal for add/edit forms -->
+  <div class="modal-overlay" id="modal">
+    <div class="modal">
+      <div class="modal-head">
+        <h3>Title</h3>
+        <button class="close">&times;</button>
+      </div>
+      <div class="modal-body"></div>
+      <div class="modal-foot">
+        <button class="btn ghost" onclick="document.getElementById('modal').classList.remove('open')">Cancel</button>
+        <button class="btn" id="modalSave">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/seed.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>
