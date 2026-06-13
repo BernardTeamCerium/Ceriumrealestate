@@ -43,7 +43,7 @@ function metrics() {
   const receivablesOverdue = state.receivables.filter((r) => r.status === 'overdue').reduce((s, r) => s + r.amount, 0);
   const upcomingFixCost = state.tasks.filter((t) => t.status !== 'done').reduce((s, t) => s + (t.estCost || 0), 0);
   const projIncome = state.projections.reduce((s, p) => s + p.income, 0);
-  const projExpenses = state.projections.reduce((s, p) => s + p.expenses, 0);
+  const projExpensesBase = state.projections.reduce((s, p) => s + p.expenses, 0);
   const inv = state.investments || [];
   const ownerEquity = inv.filter((i) => i.type !== 'loan').reduce((s, i) => s + i.amount, 0);
   const ownerLoans = inv.filter((i) => i.type === 'loan').reduce((s, i) => s + i.amount, 0);
@@ -57,12 +57,17 @@ function metrics() {
   const mortBalance = mort.reduce((s, x) => s + (x.balance || 0), 0);
   const mortOriginal = mort.reduce((s, x) => s + (x.originalAmount || 0), 0);
   const mortMonthly = mort.reduce((s, x) => s + (x.monthlyPayment || 0), 0);
+  // Insurance + mortgage are recurring monthly obligations folded into the
+  // projected expense totals on top of operating expenses.
+  const recurringMonthly = insAnnual / 12 + mortMonthly;
+  const projExpenses = projExpensesBase + recurringMonthly * state.projections.length;
   return {
     totalExpenses, owedToVendors, receivablesOpen, receivablesOverdue,
-    upcomingFixCost, projIncome, projExpenses, projNet: projIncome - projExpenses,
+    upcomingFixCost, projIncome, projExpensesBase, projExpenses, projNet: projIncome - projExpenses,
     ownerEquity, ownerLoans, totalInvested, totalRepaidOwners, owedToOwners,
     insAnnual, insMonthly: insAnnual / 12, insCoverage,
     mortBalance, mortOriginal, mortMonthly, mortPaidOff: mortOriginal - mortBalance,
+    recurringMonthly,
   };
 }
 
@@ -201,12 +206,16 @@ function renderExpenses() {
 
 function renderProjections() {
   const m = metrics();
+  const rec = m.recurringMonthly;
   const rows = state.projections.map((p) => {
-    const net = p.income - p.expenses;
+    const exp = p.expenses + rec;
+    const net = p.income - exp;
     return `<tr>
       <td>${new Date(p.month + '-01T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</td>
       <td class="num">${fmt(p.income)}</td>
       <td class="num">${fmt(p.expenses)}</td>
+      <td class="num">${fmt(rec)}</td>
+      <td class="num">${fmt(exp)}</td>
       <td class="num" style="color:${net >= 0 ? 'var(--green)' : 'var(--red)'}">${fmt(net)}</td>
     </tr>`;
   }).join('');
@@ -217,12 +226,12 @@ function renderProjections() {
     </div>
     <div class="kpi-grid">
       <div class="kpi"><div class="label">Projected Income</div><div class="value">${fmt(m.projIncome)}</div></div>
-      <div class="kpi"><div class="label">Projected Expenses</div><div class="value">${fmt(m.projExpenses)}</div></div>
+      <div class="kpi"><div class="label">Projected Expenses</div><div class="value">${fmt(m.projExpenses)}</div><div class="sub">incl. insurance + mortgage</div></div>
+      <div class="kpi"><div class="label">Fixed Monthly</div><div class="value">${fmt(rec)}</div><div class="sub">insurance ${fmt(m.insMonthly)} + mortgage ${fmt(m.mortMonthly)}</div></div>
       <div class="kpi"><div class="label">Projected Net</div><div class="value" style="color:${m.projNet >= 0 ? 'var(--green)' : 'var(--red)'}">${fmt(m.projNet)}</div></div>
-      <div class="kpi"><div class="label">Avg Monthly Net</div><div class="value">${fmt(m.projNet / 12)}</div></div>
     </div>
     <div class="panel">
-      <h3>Projected Cash Flow <span class="hint">monthly</span></h3>
+      <h3>Projected Cash Flow <span class="hint">monthly · expenses include insurance + mortgage</span></h3>
       <div class="chart-box"><canvas id="chartProj"></canvas></div>
     </div>
     <div class="panel">
@@ -230,9 +239,9 @@ function renderProjections() {
       <div class="chart-box sm"><canvas id="chartCumulative"></canvas></div>
     </div>
     <div class="panel">
-      <h3>Monthly Breakdown</h3>
+      <h3>Monthly Breakdown <span class="hint">expenses = operating + insurance + mortgage</span></h3>
       <div class="table-wrap"><table>
-        <thead><tr><th>Month</th><th class="num">Income</th><th class="num">Expenses</th><th class="num">Net</th></tr></thead>
+        <thead><tr><th>Month</th><th class="num">Income</th><th class="num">Operating</th><th class="num">Ins + Mortgage</th><th class="num">Total Exp.</th><th class="num">Net</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
     </div>`;
@@ -541,6 +550,7 @@ function buildCharts() {
   Chart.defaults.font.family = "-apple-system, 'Segoe UI', Roboto, sans-serif";
   const money = (v) => '$' + (v / 1000).toFixed(0) + 'k';
   const baseScales = { y: { grid: { color: gridColor }, ticks: { callback: money } }, x: { grid: { display: false } } };
+  const recM = metrics().recurringMonthly; // insurance + mortgage folded into monthly expenses
 
   if (document.getElementById('chartOverview')) {
     charts.ov = new Chart('chartOverview', {
@@ -549,7 +559,7 @@ function buildCharts() {
         labels: state.projections.map((p) => fmtMonth(p.month)),
         datasets: [
           { label: 'Income', data: state.projections.map((p) => p.income), backgroundColor: '#3fb950', borderRadius: 5 },
-          { label: 'Expenses', data: state.projections.map((p) => p.expenses), backgroundColor: '#f85149', borderRadius: 5 },
+          { label: 'Expenses', data: state.projections.map((p) => p.expenses + recM), backgroundColor: '#f85149', borderRadius: 5 },
         ],
       },
       options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: baseScales },
@@ -576,7 +586,8 @@ function buildCharts() {
         labels: state.projections.map((p) => fmtMonth(p.month)),
         datasets: [
           { label: 'Income', data: state.projections.map((p) => p.income), borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,0.1)', fill: true, tension: 0.35 },
-          { label: 'Expenses', data: state.projections.map((p) => p.expenses), borderColor: '#f85149', backgroundColor: 'rgba(248,81,73,0.1)', fill: true, tension: 0.35 },
+          { label: 'Total Expenses', data: state.projections.map((p) => p.expenses + recM), borderColor: '#f85149', backgroundColor: 'rgba(248,81,73,0.1)', fill: true, tension: 0.35 },
+          { label: 'Insurance + Mortgage', data: state.projections.map(() => recM), borderColor: '#d29922', borderDash: [5, 4], pointRadius: 0, fill: false, tension: 0 },
         ],
       },
       options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: baseScales },
@@ -604,7 +615,7 @@ function buildCharts() {
 
   if (document.getElementById('chartCumulative')) {
     let run = 0;
-    const cum = state.projections.map((p) => (run += p.income - p.expenses));
+    const cum = state.projections.map((p) => (run += p.income - (p.expenses + recM)));
     charts.cum = new Chart('chartCumulative', {
       type: 'line',
       data: {

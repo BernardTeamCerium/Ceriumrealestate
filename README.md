@@ -31,7 +31,7 @@ python3 -m http.server 8000
 |---|---|
 | **Overview** | KPI cards (total expenses, payables, receivables, projected net), income-vs-expense chart, expenses-by-category doughnut, upcoming fixes, and an "Attention Needed" feed of everything overdue. |
 | **Expenses** | Every recorded cost with category, property, amount, how much is still **owed** per expense, and a payment-progress bar. Add / edit / delete. |
-| **Projections** | Forecasted monthly income vs expenses, cumulative net-position chart, and a month-by-month breakdown table. |
+| **Projections** | Forecasted monthly income vs expenses (with recurring **insurance + mortgage** folded into the expense totals), cumulative net-position chart, and a month-by-month breakdown splitting operating vs fixed costs. |
 | **Money Owed** | Two ledgers — **payables** (what we owe vendors, derived from unpaid expenses) and **receivables** (rent/fees owed to us). One-click "Mark paid". |
 | **Owner Funds** | Tracks owner/investor contributions and the running balance **owed back** to each owner. Contributions increase the balance; recorded repayments/distributions reduce it. Shows owed-back-by-owner and a full contributions ledger with per-entry outstanding amounts. |
 | **Insurance** | Home/property insurance policies — provider, policy number, coverage, deductible, and annual/monthly cost, with renewal dates and a "renewing soon" count. |
