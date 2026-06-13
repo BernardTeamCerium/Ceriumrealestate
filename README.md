@@ -34,6 +34,8 @@ python3 -m http.server 8000
 | **Projections** | Forecasted monthly income vs expenses, cumulative net-position chart, and a month-by-month breakdown table. |
 | **Money Owed** | Two ledgers — **payables** (what we owe vendors, derived from unpaid expenses) and **receivables** (rent/fees owed to us). One-click "Mark paid". |
 | **Owner Funds** | Tracks owner/investor contributions and the running balance **owed back** to each owner. Contributions increase the balance; recorded repayments/distributions reduce it. Shows owed-back-by-owner and a full contributions ledger with per-entry outstanding amounts. |
+| **Insurance** | Home/property insurance policies — provider, policy number, coverage, deductible, and annual/monthly cost, with renewal dates and a "renewing soon" count. |
+| **Mortgages** | Loan balances, rates, and monthly payments per property, with a payoff-progress bar, projected payoff date (amortized from balance/rate/payment), and an aggregate payoff-trend chart. |
 | **Upcoming Fixes** | Maintenance and repairs that need attention, with priority, due date, estimated cost, and status. Overdue items are flagged. |
 
 ## Data & persistence

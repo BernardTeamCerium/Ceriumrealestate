@@ -50,10 +50,19 @@ function metrics() {
   const totalInvested = ownerEquity + ownerLoans;
   const totalRepaidOwners = inv.reduce((s, i) => s + (i.repaid || 0), 0);
   const owedToOwners = inv.reduce((s, i) => s + Math.max(0, i.amount - (i.repaid || 0)), 0);
+  const ins = state.insurance || [];
+  const insAnnual = ins.reduce((s, p) => s + (p.annualPremium || 0), 0);
+  const insCoverage = ins.reduce((s, p) => s + (p.coverage || 0), 0);
+  const mort = state.mortgages || [];
+  const mortBalance = mort.reduce((s, x) => s + (x.balance || 0), 0);
+  const mortOriginal = mort.reduce((s, x) => s + (x.originalAmount || 0), 0);
+  const mortMonthly = mort.reduce((s, x) => s + (x.monthlyPayment || 0), 0);
   return {
     totalExpenses, owedToVendors, receivablesOpen, receivablesOverdue,
     upcomingFixCost, projIncome, projExpenses, projNet: projIncome - projExpenses,
     ownerEquity, ownerLoans, totalInvested, totalRepaidOwners, owedToOwners,
+    insAnnual, insMonthly: insAnnual / 12, insCoverage,
+    mortBalance, mortOriginal, mortMonthly, mortPaidOff: mortOriginal - mortBalance,
   };
 }
 
@@ -62,6 +71,7 @@ const badgeFor = (status) => {
     paid: ['green', 'Paid'], pending: ['amber', 'Pending'], overdue: ['red', 'Overdue'],
     current: ['blue', 'Current'], due: ['amber', 'Due'],
     open: ['gray', 'Open'], scheduled: ['blue', 'Scheduled'], 'in-progress': ['amber', 'In progress'], done: ['green', 'Done'],
+    active: ['green', 'Active'], expiring: ['amber', 'Expiring'], lapsed: ['red', 'Lapsed'],
   };
   const [cls, label] = map[status] || ['gray', status];
   return `<span class="badge ${cls}">${label}</span>`;
@@ -357,6 +367,122 @@ function renderInvestments() {
     </div>`;
 }
 
+// Project a mortgage's payoff from its current balance, annual rate, and
+// monthly payment. Returns months remaining, total interest, and the balance
+// schedule (one entry per month, ending at 0).
+function amortize(m) {
+  const r = (m.rate / 100) / 12;
+  let b = m.balance;
+  const p = m.monthlyPayment;
+  const schedule = [b];
+  let months = 0, interest = 0;
+  while (b > 0 && months < 1200) {
+    const monthInterest = b * r;
+    const principal = p - monthInterest;
+    if (principal <= 0) return { months: Infinity, interest: Infinity, schedule }; // payment can't cover interest
+    b = Math.max(0, b - principal);
+    interest += monthInterest;
+    months++;
+    schedule.push(b);
+  }
+  return { months, interest, schedule };
+}
+
+function payoffDateLabel(months) {
+  if (!isFinite(months)) return '—';
+  const d = new Date(today());
+  d.setMonth(d.getMonth() + months);
+  return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}
+
+function renderInsurance() {
+  const m = metrics();
+  const ins = [...(state.insurance || [])].sort((a, b) => a.renewalDate.localeCompare(b.renewalDate));
+  const rows = ins.map((p) => `<tr>
+    <td>${esc(propName(p.property))}</td>
+    <td>${esc(p.provider)}<div style="color:var(--text-dim);font-size:11px">${esc(p.policyNumber || '')}</div></td>
+    <td class="num">${fmt(p.coverage)}</td>
+    <td class="num">${fmt(p.deductible || 0)}</td>
+    <td class="num">${fmt(p.annualPremium)}</td>
+    <td class="num">${fmt((p.annualPremium || 0) / 12)}</td>
+    <td>${fmtDate(p.renewalDate)}</td>
+    <td>${badgeFor(p.status)}</td>
+    <td><div class="row-actions">
+      <button class="icon-btn" onclick="openInsurance('${p.id}')" title="Edit">✏️</button>
+      <button class="icon-btn del" onclick="del('insurance','${p.id}')" title="Delete">🗑️</button>
+    </div></td>
+  </tr>`).join('');
+
+  const expiring = ins.filter((p) => p.status === 'expiring' || daysUntil(p.renewalDate) <= 45);
+
+  return `
+    <div class="page-head">
+      <div><h2>Insurance</h2><p>Home & property insurance policies, providers, and cost</p></div>
+      <button class="btn" onclick="openInsurance()">＋ Add Policy</button>
+    </div>
+    <div class="kpi-grid">
+      <div class="kpi"><div class="label"><span class="dot" style="background:var(--accent)"></span>Annual Premium</div><div class="value">${fmt(m.insAnnual)}</div><div class="sub">${ins.length} policies</div></div>
+      <div class="kpi"><div class="label"><span class="dot" style="background:var(--amber)"></span>Monthly Cost</div><div class="value">${fmt(m.insMonthly)}</div><div class="sub">blended across policies</div></div>
+      <div class="kpi"><div class="label"><span class="dot" style="background:var(--green)"></span>Total Coverage</div><div class="value">${fmt(m.insCoverage)}</div><div class="sub">insured value</div></div>
+      <div class="kpi"><div class="label"><span class="dot" style="background:var(--red)"></span>Renewing Soon</div><div class="value" style="color:${expiring.length ? 'var(--amber)' : 'inherit'}">${expiring.length}</div><div class="sub">within 45 days</div></div>
+    </div>
+    <div class="panel">
+      <h3>Policies</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Property</th><th>Provider</th><th class="num">Coverage</th><th class="num">Deductible</th><th class="num">Annual</th><th class="num">Monthly</th><th>Renews</th><th>Status</th><th></th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="9"><div class="empty">No policies yet.</div></td></tr>'}</tbody>
+      </table></div>
+    </div>`;
+}
+
+function renderMortgages() {
+  const m = metrics();
+  const mort = state.mortgages || [];
+  const pctPaid = m.mortOriginal ? (m.mortPaidOff / m.mortOriginal) * 100 : 0;
+
+  const rows = mort.map((x) => {
+    const { months } = amortize(x);
+    const paid = x.originalAmount - x.balance;
+    const pp = x.originalAmount ? (paid / x.originalAmount) * 100 : 0;
+    return `<tr>
+      <td>${esc(propName(x.property))}<div style="color:var(--text-dim);font-size:11px">${esc(x.lender)}</div></td>
+      <td class="num">${fmt(x.originalAmount)}</td>
+      <td class="num">${fmt(x.balance)}</td>
+      <td class="num">${x.rate}%</td>
+      <td class="num">${fmt(x.monthlyPayment)}</td>
+      <td class="num">${pp.toFixed(0)}%<div class="bar-mini" style="margin-top:5px"><div style="width:${pp}%;background:var(--green)"></div></div></td>
+      <td>${isFinite(months) ? `${payoffDateLabel(months)}<div style="color:var(--text-dim);font-size:11px">${Math.round(months / 12 * 10) / 10} yrs left</div>` : '<span style="color:var(--red)">payment too low</span>'}</td>
+      <td><div class="row-actions">
+        <button class="icon-btn" onclick="openMortgage('${x.id}')" title="Edit">✏️</button>
+        <button class="icon-btn del" onclick="del('mortgages','${x.id}')" title="Delete">🗑️</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+
+  return `
+    <div class="page-head">
+      <div><h2>Mortgages</h2><p>Loan balances, monthly payments, and payoff trajectory</p></div>
+      <button class="btn" onclick="openMortgage()">＋ Add Mortgage</button>
+    </div>
+    <div class="kpi-grid">
+      <div class="kpi"><div class="label"><span class="dot" style="background:var(--red)"></span>Outstanding Balance</div><div class="value">${fmt(m.mortBalance)}</div><div class="sub">${mort.length} loans</div></div>
+      <div class="kpi"><div class="label"><span class="dot" style="background:var(--amber)"></span>Monthly Payment</div><div class="value">${fmt(m.mortMonthly)}</div><div class="sub">across all properties</div></div>
+      <div class="kpi"><div class="label"><span class="dot" style="background:var(--green)"></span>Principal Paid Off</div><div class="value">${fmt(m.mortPaidOff)}</div><div class="sub up">${pctPaid.toFixed(0)}% of ${fmt(m.mortOriginal)}</div></div>
+      <div class="kpi"><div class="label"><span class="dot" style="background:var(--accent)"></span>Portfolio Equity</div><div class="value">${pctPaid.toFixed(0)}%</div><div class="sub">paid down</div></div>
+    </div>
+    <div class="panel">
+      <h3>Projected Payoff Trend <span class="hint">aggregate balance, at current payments</span></h3>
+      <div class="chart-box"><canvas id="chartPayoff"></canvas></div>
+    </div>
+    <div class="panel">
+      <h3>Mortgages</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Property</th><th class="num">Original</th><th class="num">Balance</th><th class="num">Rate</th><th class="num">Monthly</th><th>Paid Off</th><th>Payoff</th><th></th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="8"><div class="empty">No mortgages yet.</div></td></tr>'}</tbody>
+      </table></div>
+    </div>`;
+}
+
 function renderFixes() {
   const sorted = [...state.tasks].sort((a, b) => {
     const order = { high: 0, medium: 1, low: 2 };
@@ -457,6 +583,25 @@ function buildCharts() {
     });
   }
 
+  if (document.getElementById('chartPayoff')) {
+    const mort = state.mortgages || [];
+    const scheds = mort.map((x) => amortize(x).schedule);
+    const maxMonths = Math.max(0, ...scheds.map((s) => s.length - 1));
+    const years = Math.ceil(maxMonths / 12);
+    const startYear = today().getFullYear();
+    const labels = [], data = [];
+    for (let y = 0; y <= years; y++) {
+      const mi = y * 12;
+      labels.push(String(startYear + y));
+      data.push(scheds.reduce((sum, s) => sum + (s[Math.min(mi, s.length - 1)] || 0), 0));
+    }
+    charts.payoff = new Chart('chartPayoff', {
+      type: 'line',
+      data: { labels, datasets: [{ label: 'Remaining balance', data, borderColor: '#2f81f7', backgroundColor: 'rgba(47,129,247,0.12)', fill: true, tension: 0.3, pointRadius: 2 }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: baseScales },
+    });
+  }
+
   if (document.getElementById('chartCumulative')) {
     let run = 0;
     const cum = state.projections.map((p) => (run += p.income - p.expenses));
@@ -473,7 +618,7 @@ function buildCharts() {
 
 /* ----------------------------- Router ----------------------------- */
 
-const VIEWS = { overview: renderOverview, expenses: renderExpenses, projections: renderProjections, owed: renderOwed, investments: renderInvestments, fixes: renderFixes };
+const VIEWS = { overview: renderOverview, expenses: renderExpenses, projections: renderProjections, owed: renderOwed, investments: renderInvestments, insurance: renderInsurance, mortgages: renderMortgages, fixes: renderFixes };
 
 function render() {
   document.getElementById('view').innerHTML = (VIEWS[currentView] || renderOverview)();
@@ -612,6 +757,60 @@ function repayOwner(id) {
   });
 }
 
+function openInsurance(id) {
+  state.insurance = state.insurance || [];
+  const p = state.insurance.find((x) => x.id === id) || { renewalDate: '2026-12-01', status: 'active', property: state.properties[0].id };
+  modal(id ? 'Edit Policy' : 'Add Insurance Policy', `
+    <div class="field-row">
+      <div class="field"><label>Property</label><select id="f_prop">${propOptions(p.property)}</select></div>
+      <div class="field"><label>Provider</label><input id="f_provider" value="${esc(p.provider || '')}" placeholder="e.g. Allstate"></div>
+    </div>
+    <div class="field"><label>Policy Number</label><input id="f_policy" value="${esc(p.policyNumber || '')}"></div>
+    <div class="field-row">
+      <div class="field"><label>Coverage Amount</label><input id="f_cov" type="number" min="0" value="${p.coverage || ''}"></div>
+      <div class="field"><label>Deductible</label><input id="f_ded" type="number" min="0" value="${p.deductible || 0}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Annual Premium</label><input id="f_prem" type="number" min="0" value="${p.annualPremium || ''}"></div>
+      <div class="field"><label>Renewal Date</label><input id="f_renew" type="date" value="${p.renewalDate}"></div>
+    </div>
+    <div class="field"><label>Status</label><select id="f_status">${['active', 'expiring', 'lapsed'].map((s) => `<option ${s === p.status ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
+  `, () => {
+    if (!val('f_provider') || !+val('f_prem')) { alert('Provider and annual premium are required.'); return false; }
+    const rec = { property: val('f_prop'), provider: val('f_provider'), policyNumber: val('f_policy'), coverage: +val('f_cov'), deductible: +val('f_ded'), annualPremium: +val('f_prem'), renewalDate: val('f_renew'), status: val('f_status') };
+    if (id) Object.assign(p, rec); else state.insurance.push({ id: uid(), ...rec });
+    saveState(); render();
+  });
+}
+
+function openMortgage(id) {
+  state.mortgages = state.mortgages || [];
+  const x = state.mortgages.find((y) => y.id === id) || { rate: 4.5, termMonths: 360, startDate: '2026-01-01', property: state.properties[0].id };
+  modal(id ? 'Edit Mortgage' : 'Add Mortgage', `
+    <div class="field-row">
+      <div class="field"><label>Property</label><select id="f_prop">${propOptions(x.property)}</select></div>
+      <div class="field"><label>Lender</label><input id="f_lender" value="${esc(x.lender || '')}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Original Amount</label><input id="f_orig" type="number" min="0" value="${x.originalAmount || ''}"></div>
+      <div class="field"><label>Current Balance</label><input id="f_bal" type="number" min="0" value="${x.balance || ''}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Interest Rate (%)</label><input id="f_rate" type="number" min="0" step="0.01" value="${x.rate}"></div>
+      <div class="field"><label>Monthly Payment</label><input id="f_pay" type="number" min="0" value="${x.monthlyPayment || ''}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Start Date</label><input id="f_start" type="date" value="${x.startDate}"></div>
+      <div class="field"><label>Term (months)</label><input id="f_term" type="number" min="0" value="${x.termMonths || 360}"></div>
+    </div>
+  `, () => {
+    if (!+val('f_bal') || !+val('f_pay')) { alert('Balance and monthly payment are required.'); return false; }
+    const rec = { property: val('f_prop'), lender: val('f_lender'), originalAmount: +val('f_orig'), balance: +val('f_bal'), rate: +val('f_rate'), monthlyPayment: +val('f_pay'), startDate: val('f_start'), termMonths: +val('f_term') };
+    if (id) Object.assign(x, rec); else state.mortgages.push({ id: uid(), ...rec });
+    saveState(); render();
+  });
+}
+
 function settleExpense(id) {
   const e = state.expenses.find((x) => x.id === id);
   if (e) { e.paid = e.amount; e.status = 'paid'; saveState(); render(); }
@@ -641,4 +840,4 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Expose handlers used in inline onclick attributes.
-Object.assign(window, { openExpense, openReceivable, openTask, openInvestment, repayOwner, settleExpense, settleReceivable, del });
+Object.assign(window, { openExpense, openReceivable, openTask, openInvestment, repayOwner, openInsurance, openMortgage, settleExpense, settleReceivable, del });

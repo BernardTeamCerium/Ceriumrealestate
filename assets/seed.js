@@ -60,6 +60,24 @@ const SEED_DATA = {
     { id: 'i5', date: '2026-05-09', owner: 'R. Frazier', property: 'p2', type: 'equity', amount: 60000, repaid: 0, notes: 'Duplex buy-in' },
   ],
 
+  // Home / property insurance policies. `annualPremium` is the yearly cost;
+  // the dashboard derives the monthly figure. `status`: active | expiring | lapsed.
+  insurance: [
+    { id: 'ins1', property: 'p1', provider: 'Allstate', policyNumber: 'AL-4471920', coverage: 2000000, annualPremium: 18400, deductible: 5000, renewalDate: '2026-09-01', status: 'active' },
+    { id: 'ins2', property: 'p2', provider: 'State Farm', policyNumber: 'SF-882013', coverage: 360000, annualPremium: 2650, deductible: 2500, renewalDate: '2026-07-15', status: 'expiring' },
+    { id: 'ins3', property: 'p3', provider: 'Liberty Mutual', policyNumber: 'LM-100774', coverage: 4500000, annualPremium: 41200, deductible: 10000, renewalDate: '2026-12-01', status: 'active' },
+    { id: 'ins4', property: 'p4', provider: 'Farmers', policyNumber: 'FM-563019', coverage: 1100000, annualPremium: 9300, deductible: 5000, renewalDate: '2026-08-20', status: 'active' },
+  ],
+
+  // Property mortgages. `balance` is the current principal owed; the dashboard
+  // projects payoff from balance, rate (annual %), and monthlyPayment.
+  mortgages: [
+    { id: 'm1', property: 'p1', lender: 'First National Bank', originalAmount: 1800000, balance: 1452000, rate: 4.5, monthlyPayment: 9120, startDate: '2021-03-01', termMonths: 360 },
+    { id: 'm2', property: 'p2', lender: 'Maple Credit Union', originalAmount: 320000, balance: 238500, rate: 3.9, monthlyPayment: 1510, startDate: '2019-06-01', termMonths: 360 },
+    { id: 'm3', property: 'p3', lender: 'Commerce Capital', originalAmount: 3200000, balance: 2748000, rate: 5.1, monthlyPayment: 17400, startDate: '2022-01-01', termMonths: 360 },
+    { id: 'm4', property: 'p4', lender: 'First National Bank', originalAmount: 950000, balance: 602000, rate: 4.2, monthlyPayment: 4640, startDate: '2018-09-01', termMonths: 300 },
+  ],
+
   // Forward-looking monthly projections for the fiscal year.
   // Amounts are projected income vs projected expenses.
   projections: [
